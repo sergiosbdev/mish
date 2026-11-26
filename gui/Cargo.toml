@@ -1,0 +1,21 @@
+[package]
+name = "mish-app"
+version = "0.2.0"
+edition = "2024"
+
+[dependencies]
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }
+base64 = "0.23.1"
+chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
+getrandom = "0.4.3"
+libc = "0.2.191"
+mish-proto = { path = "../proto" }
+mish-updater = { path = "../updater" }
+muda = { version = "0.22.0", default-features = false }
+portable-pty = "0.9.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tao = "0.37.3"
+toml = { version = "1.2.2", default-features = false, features = ["std", "parse", "serde"] }
+wry = "0.57.3"
+zeroize = { version = "1.9.2", features = ["derive", "serde"] }

@@ -1,0 +1,14 @@
+[package]
+name = "mish"
+version = "0.2.0"
+edition = "2024"
+
+[dependencies]
+libc = "0.2.191"
+mish-proto = { path = "proto" }
+mish-updater = { path = "updater" }
+nu-ansi-term = "0.50.3"
+reedline = "0.53.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+toml = "1.2.2"

@@ -1,0 +1,167 @@
+:root {
+  --bg: #0c101a;
+  --bar: #0a0d15;
+  --tab: #141a28;
+  --tab-active: #1c2436;
+  --text: #fdf4e8;
+  --muted: #8590a8;
+  --accent: #e8854c;
+  --line: #1c2232;          /* borde sutil (mismo que #bar) */
+  --accent-soft: #e8854c38; /* acento tenue para hover/arrastre */
+  --bar-h: 38px;
+  --traffic: 78px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#bar {
+  height: var(--bar-h);
+  display: flex;
+  align-items: flex-end;
+  padding-left: var(--traffic);
+  background: var(--bar);
+  border-bottom: 1px solid #1c2232;
+}
+
+#tabs { display: flex; gap: 2px; min-width: 0; overflow: hidden; }
+
+.tab {
+  --tint: transparent;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  min-width: 90px;
+  max-width: 220px;
+  padding: 0 10px 0 12px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(var(--tint), var(--tint)), var(--tab);
+  color: var(--muted);
+  cursor: default;
+  white-space: nowrap;
+}
+.tab.active { background: linear-gradient(var(--tint), var(--tint)), var(--tab-active); color: var(--text); }
+.tab.active::before {
+  content: "";
+  position: absolute;
+  left: 10px; right: 10px; top: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.tab.remote.active::before { background: #76d3bf; }
+.tab .title { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.tab .close {
+  width: 16px; height: 16px;
+  border: 0; border-radius: 4px;
+  background: transparent; color: inherit;
+  font-size: 13px; line-height: 16px;
+  opacity: 0; padding: 0;
+}
+.tab:hover .close { opacity: .7; }
+.tab .close:hover { opacity: 1; background: #ffffff1a; }
+
+#add {
+  height: 26px; width: 28px;
+  margin: 0 0 2px 6px;
+  border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted);
+  font-size: 17px;
+}
+#add:hover { background: #ffffff12; color: var(--text); }
+
+#drag { flex: 1; height: 100%; }
+
+#panes { position: absolute; top: var(--bar-h); left: 0; right: 0; bottom: 0; }
+
+/* Una .tabview por pestaña. Se oculta con visibility (no display:none) para que
+   xterm/addon-fit sigan pudiendo medir los paneles de pestañas inactivas. */
+.tabview {
+  position: absolute; inset: 0;
+  display: flex;
+  visibility: hidden;
+  isolation: isolate; /* contiene los z-index de divisores y xterm por debajo de #search */
+}
+.tabview.active { visibility: visible; }
+.tabview > * { flex: 1 1 0; }
+
+/* Contenedores de división, anidables. Cada hijo recibe inline `flex: <ratio> 1 0`. */
+.split { display: flex; min-width: 0; min-height: 0; }
+.split.row { flex-direction: row; }
+.split.col { flex-direction: column; }
+.split > * { min-width: 0; min-height: 0; }
+
+.pane {
+  position: relative;
+  min-width: 0; min-height: 0;
+  overflow: hidden;
+  isolation: isolate; /* los z-index internos de xterm (hasta 11) no tapan los divisores */
+  background: var(--bg); /* app.js puede sobrescribirlo inline con el tinte del servidor */
+  transition: background-color .25s ease, opacity .15s ease;
+}
+/* El margen interior va en .xterm, no en .pane: addon-fit mide la altura/anchura del
+   padre (.pane) y solo descuenta el padding del propio .xterm. Con border-box, .xterm
+   ocupa exactamente el pane y su padding (transparente) deja ver el fondo del pane. */
+.pane .xterm { height: 100%; padding: 8px 4px 4px 12px; }
+
+/* Foco: solo cuando hay varios paneles (todo panel dentro de un .split). Un panel
+   único (.tabview > .pane) no lleva indicadores. */
+.split > .pane:not(.focused) { opacity: .82; }
+.split > .pane.focused::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-soft); /* separa la línea de fondos teñidos */
+  z-index: 20;
+  pointer-events: none;
+}
+
+/* Divisor: 1px visible; la zona de agarre (::before) se extiende 3px a cada lado
+   por encima de los paneles, sin restarles espacio de layout. */
+.divider {
+  position: relative;
+  flex: 0 0 1px;
+  z-index: 1;
+  background: var(--line);
+  transition: background-color .15s ease;
+}
+.divider::before {
+  content: "";
+  position: absolute;
+  transition: background-color .15s ease;
+}
+.split.row > .divider { cursor: col-resize; }
+.split.col > .divider { cursor: row-resize; }
+.split.row > .divider::before { top: 0; bottom: 0; left: -3px; right: -3px; }
+.split.col > .divider::before { left: 0; right: 0; top: -3px; bottom: -3px; }
+.divider:hover, .divider.dragging { background: var(--accent); transition-delay: .1s; }
+.divider:hover::before, .divider.dragging::before { background: var(--accent-soft); transition-delay: .1s; }
+.divider.dragging, .divider.dragging::before { transition-delay: 0s; }
+
+/* Durante el arrastre: sin selección, sin eventos en los terminales y cursor fijo. */
+body.resizing { -webkit-user-select: none; user-select: none; cursor: col-resize; }
+body.resizing:has(.split.col > .divider.dragging) { cursor: row-resize; }
+body.resizing * { cursor: inherit !important; }
+body.resizing .xterm { pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pane, .divider, .divider::before { transition: none; }
+}
+
+.xterm .xterm-viewport { background-color: transparent !important; }
+
+.tab.bell .title::after { content: " ●"; color: var(--accent); }

@@ -1,0 +1,6 @@
+target/
+.DS_Store
+dist/
+# claves privadas (la de firma vive en ~/.config/mish-export/)
+*.pem
+*.key

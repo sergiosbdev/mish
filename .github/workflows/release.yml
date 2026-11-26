@@ -1,0 +1,130 @@
+# Publica una release de Mish al hacer push de un tag vX.Y.Z (lo crea app/release.sh).
+#
+# Sube a la release: Mish-X.Y.Z-macos-universal.zip, su .sha256 y su .sig (Ed25519).
+# El actualizador de la app (updater/) descarga esos tres ficheros y verifica sha256 + firma
+# con la clave pública embebida (updater/update-key.pub) antes de instalar nada.
+#
+# Secret necesario: MISH_UPDATE_KEY (clave privada Ed25519 en PEM PKCS#8; ver updater/README.md).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Mínimo imprescindible: crear la release y subir sus ficheros.
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash   # bash --noprofile --norc -eo pipefail
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # macos-14 = Apple Silicon (arm64). x86_64 se compila cruzado y se une con lipo (universal):
+    # el código es Rust puro + frameworks del sistema (WebKit vía wry), así que la compilación
+    # cruzada solo necesita el target x86_64-apple-darwin; un único zip sirve a ambos Mac.
+    # Si alguna vez falla, cambiar ARCH a arm64 (el actualizador también busca *-arm64.zip).
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      ARCH: universal
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust estable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # rama stable, 2026-11-15
+        with:
+          toolchain: stable
+          targets: x86_64-apple-darwin
+
+      # Las cachés creadas en un tag solo las ve ese mismo tag (y las de la rama por defecto):
+      # sirve sobre todo para relanzar (re-run) una release que ha fallado.
+      - name: Caché de cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            . -> target
+            daemon -> target
+            gui -> target
+            updater -> target
+          cache-on-failure: true
+
+      - name: Comprobar que el tag coincide con la versión de Cargo
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::El tag '$tag' no es vX.Y.Z (SemVer)"
+            exit 1
+          fi
+          want="${tag#v}"
+          fail=0
+          for m in Cargo.toml */Cargo.toml; do
+            [[ -f "$m" ]] && grep -q '^\[package\]' "$m" || continue
+            have=$(cargo metadata --no-deps --format-version 1 --manifest-path "$m" | jq -r '.packages[0].version')
+            echo "$m: $have"
+            if [[ "$have" != "$want" ]]; then
+              echo "::error file=$m::versión $have distinta del tag $tag"
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+      - name: Compilar y empaquetar Mish.app
+        run: app/build-app.sh --dist --arch "$ARCH"
+
+      # Se compilan antes de escribir la clave en disco: así ningún build script de las
+      # dependencias llega a ejecutarse mientras la clave privada existe en el runner.
+      - name: Compilar las herramientas de firma (updater/examples)
+        run: cargo build --release --locked --manifest-path updater/Cargo.toml --example sign --example verify
+
+      - name: Firmar el zip (Ed25519)
+        # La clave solo existe en el entorno de este paso (nunca en disco ni en el log; GitHub
+        # además enmascara el secret). Los binarios ya están compilados: aquí no corre cargo.
+        env:
+          MISH_UPDATE_KEY: ${{ secrets.MISH_UPDATE_KEY }}
+        run: |
+          if [[ -z "${MISH_UPDATE_KEY:-}" ]]; then
+            echo "::error::Falta el secret MISH_UPDATE_KEY"
+            exit 1
+          fi
+          zip="dist/Mish-${GITHUB_REF_NAME#v}-macos-$ARCH.zip"
+          # Falla si la clave no corresponde a updater/update-key.pub o si la firma no verifica.
+          # Escribe "$zip.sig" y reescribe "$zip.sha256" (mismo formato que build-app.sh: idéntico).
+          updater/target/release/examples/sign --key-env MISH_UPDATE_KEY "$zip"
+
+      - name: Verificar la firma con la clave pública del repo
+        run: |
+          zip="dist/Mish-${GITHUB_REF_NAME#v}-macos-$ARCH.zip"
+          (cd dist && shasum -a 256 -c "${zip#dist/}.sha256")
+          # Mismo código que usa la app, con la clave pública embebida (updater/update-key.pub).
+          updater/target/release/examples/verify "$zip"
+
+      - name: Crear la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          args=(--title "Mish $tag" --verify-tag)
+          [[ "$tag" == *-* ]] && args+=(--prerelease)   # vX.Y.Z-rc… no cuenta como «latest»
+          # Notas: mensaje del tag anotado (app/release.sh); si el tag es ligero, las genera GitHub.
+          # Se leen por la API para no depender de que el checkout traiga el objeto tag.
+          obj=$(gh api "repos/$GH_REPO/git/ref/tags/$tag" --jq '.object.type + " " + .object.sha')
+          if [[ "${obj%% *}" == tag ]]; then
+            # Sin la primera línea «Mish vX.Y.Z» (ya es el título) ni la línea en blanco que la sigue.
+            gh api "repos/$GH_REPO/git/tags/${obj#* }" --jq .message \
+              | awk 'NR==1 && /^Mish v/ {next} NR==2 && /^$/ {next} {print}' > "$RUNNER_TEMP/notes.md"
+            args+=(--notes-file "$RUNNER_TEMP/notes.md")
+          else
+            args+=(--generate-notes)
+          fi
+          gh release create "$tag" dist/*.zip dist/*.sha256 dist/*.sig "${args[@]}"

@@ -1,0 +1,256 @@
+/* Mish.app — estado de Claude Code en pestañas y paneles. Usa las variables de app.css
+   y la paleta de notice.css (ámbar/verde/rojo), con valores de reserva por si falta.
+
+   Contrato (lo genera app.js):
+     .tab[data-claude="working|waiting|done|error"]
+         punto de estado justo detrás del título (el sitio del punto .bell). Si hay estado
+         de Claude, manda él: el punto de .bell se oculta. Sin atributo = sin Claude.
+     .pane > .claude-pill[data-state="working|waiting|done|error"]
+         > .cp-dot + .cp-text      pastilla del panel; sin data-state (o vacío) = oculta.
+
+   Colores:
+     working  acento naranja con pulso suave (estático con prefers-reduced-motion)
+     waiting  ámbar sólido + tinte suave en la pestaña: es el que pide atención
+     done     verde
+     error    rojo suave, en anillo (forma distinta del punto naranja de working)
+
+   Pastilla: arriba a la derecha del panel, por dentro del hueco de la scrollbar de xterm.
+   Abajo a la derecha está la caja de entrada de Claude Code, su línea de estado y sus
+   diálogos de permisos (justo lo que hay que ver en "waiting"), además de #notice; arriba
+   solo hay salida antigua. Con la búsqueda (⌘F) abierta baja por debajo de #search.
+   Al pasar el ratón por encima se vuelve casi transparente para leer lo que tapa. */
+
+:root {
+  --cl-work: var(--accent, #e8854c);
+  --cl-wait: var(--n-warn, #f0bf4c);
+  --cl-done: var(--n-ok, #6fcf8f);
+  --cl-err: var(--n-err, #f2675f);
+  --cl-line: var(--n-line, #232b3d);
+  --cl-dot: 7px;
+  --cl-ease: cubic-bezier(.2, .8, .2, 1);
+  /* Hueco a la derecha para no tapar la scrollbar de xterm (igual que #search y #notice). */
+  --cl-gutter: 18px;
+  --cl-top: 10px;
+}
+
+/* ---------- color por estado ---------- */
+
+.tab[data-claude="working"], .claude-pill[data-state="working"] { --cl-c: var(--cl-work); }
+.tab[data-claude="waiting"], .claude-pill[data-state="waiting"] { --cl-c: var(--cl-wait); }
+.tab[data-claude="done"],    .claude-pill[data-state="done"]    { --cl-c: var(--cl-done); }
+/* Rojo suave: mezclado con el fondo para que avise sin gritar. */
+.tab[data-claude="error"],   .claude-pill[data-state="error"]   { --cl-c: color-mix(in srgb, var(--cl-err) 88%, var(--text)); }
+
+/* ================= pestaña ================= */
+
+/* El punto es un ::after de .tab (flex item): con `order` se coloca entre el título y el
+   botón de cerrar. El título deja de crecer (flex 0 1 auto) para que el punto quede pegado
+   al texto, como el de .bell, y el margin-right:auto devuelve el botón a la derecha.
+   Al ser hermano del título, la elipsis de un título largo nunca se come el punto. */
+.tab:is([data-claude="working"], [data-claude="waiting"], [data-claude="done"], [data-claude="error"]) .title {
+  flex: 0 1 auto;
+}
+.tab:is([data-claude="working"], [data-claude="waiting"], [data-claude="done"], [data-claude="error"])::after {
+  content: "";
+  order: 1;
+  flex: none;
+  width: var(--cl-dot);
+  height: var(--cl-dot);
+  margin: 0 auto 0 -3px; /* gap 8px − 3px ≈ el hueco de " ●" */
+  border-radius: 50%;
+  background: var(--cl-c);
+  /* Anillo oscuro fino: separa el punto de pestañas teñidas por el servidor (--tint). */
+  box-shadow: 0 0 0 1.5px #0a0d1599;
+  transition: background-color .2s ease;
+}
+.tab:is([data-claude="working"], [data-claude="waiting"], [data-claude="done"], [data-claude="error"]) .close {
+  order: 2;
+}
+
+/* Claude manda sobre la campana: fuera el " ●" de .bell. */
+.tab.bell:is([data-claude="working"], [data-claude="waiting"], [data-claude="done"], [data-claude="error"]) .title::after {
+  content: none;
+}
+
+/* working: pulso suave (halo que se expande y se apaga). */
+.tab[data-claude="working"]::after {
+  animation: cl-pulse 1.6s ease-in-out infinite;
+}
+
+/* waiting: punto con halo fijo + tinte ámbar de la pestaña, encima del --tint del servidor
+   (que app.js pone inline como variable, así que se respeta en la capa de abajo). */
+.tab[data-claude="waiting"]::after {
+  box-shadow: 0 0 0 1.5px #0a0d1599, 0 0 0 4px color-mix(in srgb, var(--cl-wait) 22%, transparent);
+}
+.tab[data-claude="waiting"] {
+  background:
+    linear-gradient(color-mix(in srgb, var(--cl-wait) 15%, transparent), color-mix(in srgb, var(--cl-wait) 6%, transparent)),
+    linear-gradient(var(--tint), var(--tint)),
+    var(--tab);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--cl-wait) 30%, transparent),
+    inset 1px 0 0 color-mix(in srgb, var(--cl-wait) 14%, transparent),
+    inset -1px 0 0 color-mix(in srgb, var(--cl-wait) 14%, transparent);
+  color: color-mix(in srgb, var(--text) 72%, var(--cl-wait));
+}
+.tab.active[data-claude="waiting"] {
+  background:
+    linear-gradient(color-mix(in srgb, var(--cl-wait) 11%, transparent), color-mix(in srgb, var(--cl-wait) 3%, transparent)),
+    linear-gradient(var(--tint), var(--tint)),
+    var(--tab-active);
+  color: var(--text);
+}
+
+/* error: anillo en vez de punto. A 7px el rojo suave y el naranja de working se confunden;
+   la forma lo distingue también sin color (y con el pulso parado). */
+.tab[data-claude="error"]::after {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--cl-c), 0 0 0 1.5px #0a0d1599;
+}
+/* error en la pastilla: también anillo, como en la pestaña. */
+.claude-pill[data-state="error"] .cp-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--cl-c);
+}
+
+/* app.js la crea con [hidden] y lo quita al poner data-state: el display:flex de .claude-pill
+   anularía el [hidden] del navegador, así que se repite aquí (más específico). */
+.claude-pill[hidden] { display: none; }
+/* Entrada suave al pasar de [hidden] a visible (display none → flex). */
+@starting-style {
+  .claude-pill:is([data-state="working"], [data-state="waiting"], [data-state="done"], [data-state="error"]) {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+/* done/error en pestañas inactivas: el título sube un punto de contraste para que se vea
+   que ahí ha pasado algo, sin teñir el fondo. */
+.tab:not(.active):is([data-claude="done"], [data-claude="error"]) {
+  color: color-mix(in srgb, var(--muted) 65%, var(--text));
+}
+
+/* ================= pastilla del panel ================= */
+
+.claude-pill {
+  position: absolute;
+  top: var(--cl-top);
+  right: var(--cl-gutter);
+  /* Dentro del contexto de apilado del .pane: por encima de xterm (≤ 11),
+     por debajo de la línea de foco (.pane.focused::after, 20). */
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* «Claude · <detail>» llega hasta ~48 caracteres: tope fijo + elipsis en .cp-text. */
+  max-width: min(320px, calc(100% - var(--cl-gutter) - 12px));
+  height: 20px;
+  padding: 0 8px 0 7px;
+  border: 1px solid color-mix(in srgb, var(--cl-c, var(--muted)) 30%, var(--cl-line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tab) 88%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 16px -8px #000c, 0 1px 0 #ffffff08 inset;
+  color: #d5dae4;
+  font: 500 11px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  letter-spacing: .01em;
+  white-space: nowrap;
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-3px);
+  pointer-events: none;
+  transition:
+    opacity .18s ease,
+    transform .18s var(--cl-ease),
+    visibility 0s linear .18s,
+    background-color .2s ease,
+    border-color .2s ease;
+}
+.claude-pill:is([data-state="working"], [data-state="waiting"], [data-state="done"], [data-state="error"]) {
+  --cl-o: .92;
+  opacity: var(--cl-o);
+  visibility: visible;
+  transform: none;
+  /* Solo para el :hover (ver abajo). Un mousedown aquí sigue enfocando el panel:
+     app.js escucha mousedown en captura sobre el .pane. */
+  pointer-events: auto;
+  transition:
+    opacity .18s ease,
+    transform .18s var(--cl-ease),
+    background-color .2s ease,
+    border-color .2s ease;
+}
+
+.cp-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cl-c, var(--muted));
+  transition: background-color .2s ease;
+}
+.cp-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claude-pill[data-state="working"] .cp-dot { animation: cl-pulse-sm 1.6s ease-in-out infinite; }
+
+/* waiting: la más visible; fondo ámbar suave y texto cálido. */
+.claude-pill[data-state="waiting"] {
+  --cl-o: 1;
+  border-color: color-mix(in srgb, var(--cl-wait) 45%, var(--cl-line));
+  background: color-mix(in srgb, color-mix(in srgb, var(--cl-wait) 16%, var(--tab)) 92%, transparent);
+  color: color-mix(in srgb, var(--text) 78%, var(--cl-wait));
+}
+.claude-pill[data-state="waiting"] .cp-dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cl-wait) 22%, transparent);
+}
+
+/* done: informativo, un poco más discreto. */
+.claude-pill[data-state="done"] { --cl-o: .8; }
+.claude-pill[data-state="error"] { color: color-mix(in srgb, var(--text) 80%, var(--cl-err)); }
+
+/* Paneles no enfocados (solo con varios paneles: el .pane ya va a .82 en app.css). */
+.split > .pane:not(.focused) .claude-pill[data-state] { --cl-o: .62; }
+.split > .pane:not(.focused) .claude-pill[data-state="waiting"] { --cl-o: .9; }
+
+/* Ratón encima: casi transparente para leer lo que hay debajo. */
+.pane .claude-pill[data-state]:hover {
+  opacity: .14;
+  transition-duration: .12s;
+}
+
+/* Con ⌘F abierto, #search ocupa arriba a la derecha de #panes (top 8px + 34px):
+   la pastilla baja por debajo. */
+#panes:has(> #search.open) .claude-pill { top: calc(var(--cl-top) + 40px); }
+
+/* ---------- animaciones ---------- */
+
+@keyframes cl-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 1.5px #0a0d1599, 0 0 0 0 color-mix(in srgb, var(--cl-work) 55%, transparent);
+    opacity: 1;
+  }
+  55% {
+    box-shadow: 0 0 0 1.5px #0a0d1599, 0 0 0 4.5px color-mix(in srgb, var(--cl-work) 0%, transparent);
+    opacity: .6;
+  }
+}
+@keyframes cl-pulse-sm {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cl-work) 55%, transparent); opacity: 1; }
+  55%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--cl-work) 0%, transparent); opacity: .6; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab[data-claude]::after,
+  .claude-pill .cp-dot { animation: none !important; transition: none; }
+  .claude-pill { transform: none !important; transition: opacity .01s linear, visibility 0s; }
+  /* working estático: halo fijo y tenue en lugar del pulso. */
+  .tab[data-claude="working"]::after {
+    box-shadow: 0 0 0 1.5px #0a0d1599, 0 0 0 3px color-mix(in srgb, var(--cl-work) 22%, transparent);
+  }
+}

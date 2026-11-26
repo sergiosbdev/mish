@@ -1,0 +1,437 @@
+/* Mish.app — aviso flotante (#notice). Usa las variables de app.css, vault.css y help.css.
+
+   Ubicación: abajo a la derecha del área de terminal. En un terminal la parte de arriba es
+   la que más se lee (salida reciente con la pantalla limpia, barra de búsqueda ⌘F arriba a
+   la derecha) y el prompt vive pegado al margen izquierdo, así que la esquina inferior
+   derecha es la zona que menos texto útil tapa. Un aviso arriba al centro taparía justo
+   las primeras líneas y competiría con las pestañas y con #search.
+
+   Contrato (window.mishNotice en app.js):
+     #notice.open                 visible (el atributo [hidden] da igual: lo manda .open)
+     #notice[data-kind="…"]       build · proto · taken_over · local
+                                  update · uptodate · updating · updated · error
+     .n-title / .n-msg            texto; si quedan vacíos no ocupan sitio
+     .n-list > li                 lista de cambios (update); vacía = oculta; scroll a ~6 líneas
+     .n-actions > button[data-action].primary|.secondary|.danger
+                                  los crea JS; .primary siempre queda a la derecha
+     .n-progress                  barra (visible con data-kind="updating" o con #notice.n-busy)
+                                  indeterminada por defecto; determinada si #notice tiene
+                                  [data-p] y la variable --p (0–100, número sin %)
+     .n-close                     cerrar */
+
+:root {
+  --n-line: #232b3d;
+  --n-info: #86a6df;
+  --n-warn: #f0bf4c;
+  --n-err: #f2675f;
+  --n-ok: #6fcf8f;
+  --n-ease: cubic-bezier(.2, .8, .2, 1);
+  --n-dur: .18s;
+  --n-w: 380px;
+  /* Hueco a la derecha para no tapar la scrollbar de xterm (igual que #search). */
+  --n-gutter: 20px;
+  --n-bottom: 14px;
+}
+
+/* ---------- capa ---------- */
+
+#notice {
+  /* --n-c: color semántico de la variante (icono, borde, franja). */
+  --n-c: var(--n-info);
+
+  position: fixed;
+  right: var(--n-gutter);
+  bottom: var(--n-bottom);
+  /* Por encima de paneles, xterm (≤ 11), caja fuerte (5) y #search (20);
+     por debajo de la ventana de atajos #help (100). */
+  z-index: 50;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "icon text  close"
+    ".    acts  acts";
+  align-items: start;
+  column-gap: 11px;
+  width: min(var(--n-w), calc(100vw - var(--n-gutter) - 16px));
+  max-height: calc(100vh - var(--bar-h) - 2 * var(--n-bottom));
+  padding: 11px 8px 12px 12px;
+  overflow: hidden;
+  border: 1px solid var(--n-line);
+  border-radius: 10px;
+  background: var(--tab);
+  box-shadow: 0 16px 36px -14px #000d, 0 1px 0 #ffffff08 inset;
+  color: var(--text);
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+
+  opacity: 0;
+  transform: translateY(8px) scale(.985);
+  transform-origin: 100% 100%;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--n-dur) ease,
+    transform var(--n-dur) var(--n-ease),
+    right var(--v-dur, .18s) var(--n-ease),
+    visibility 0s linear var(--n-dur);
+}
+#notice.open {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity var(--n-dur) ease,
+    transform var(--n-dur) var(--n-ease),
+    right var(--v-dur, .18s) var(--n-ease);
+}
+
+/* Con la caja fuerte abierta el aviso se aparta y queda sobre el terminal. */
+body.vault-open #notice { right: calc(var(--vault-w, 300px) + var(--n-gutter)); }
+/* Igual con cualquier panel lateral (caja fuerte o git): --side-w lo define vault.css. */
+body[data-side] #notice { right: calc(var(--side-w, 0px) + var(--n-gutter)); }
+
+#notice [hidden] { display: none !important; }
+#notice button {
+  font: inherit;
+  color: inherit;
+  cursor: default;
+}
+#notice :focus-visible { outline: 2px solid #e8854cb3; outline-offset: 1px; }
+
+/* Franja lateral en las variantes que piden atención. */
+#notice::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--n-c);
+  opacity: 0;
+}
+
+/* ---------- variantes ---------- */
+
+#notice[data-kind="build"]      { --n-c: var(--n-info); }
+#notice[data-kind="local"]      { --n-c: var(--n-warn); }
+#notice[data-kind="proto"]      { --n-c: var(--n-warn); }
+#notice[data-kind="taken_over"] { --n-c: var(--n-warn); }
+#notice[data-kind="update"]     { --n-c: var(--accent); }
+#notice[data-kind="updating"]   { --n-c: var(--accent); }
+#notice[data-kind="uptodate"]   { --n-c: var(--n-ok); }
+#notice[data-kind="updated"]    { --n-c: var(--n-ok); }
+#notice[data-kind="error"]      { --n-c: var(--n-err); }
+
+/* Importantes: borde teñido y franja. */
+#notice:is([data-kind="proto"], [data-kind="taken_over"], [data-kind="error"]) {
+  border-color: color-mix(in srgb, var(--n-c) 38%, var(--n-line));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--n-c) 7%, transparent), transparent 55%),
+    var(--tab);
+}
+#notice:is([data-kind="proto"], [data-kind="taken_over"], [data-kind="error"])::before { opacity: 1; }
+
+/* build: informativo y discreto; más compacto y un punto translúcido hasta pasar el ratón. */
+#notice[data-kind="build"] {
+  --n-w: 340px;
+  padding: 8px 6px 8px 10px;
+  column-gap: 9px;
+}
+#notice[data-kind="build"].open:not(:hover, :focus-within) { opacity: .9; }
+#notice[data-kind="build"] .n-icon { width: 18px; height: 18px; margin-top: 0; font-size: 11px; }
+#notice[data-kind="build"] .n-title { font-size: 12px; }
+#notice[data-kind="build"] .n-msg { font-size: 11.5px; }
+
+/* ---------- icono (CSS puro) ---------- */
+
+.n-icon {
+  grid-area: icon;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: -1px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--n-c) 17%, transparent);
+  color: var(--n-c);
+  font: 700 12.5px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+}
+.n-icon::before,
+.n-icon::after { content: ""; position: absolute; }
+
+/* i — informativo */
+#notice[data-kind="build"] .n-icon::before { content: "i"; position: static; font-family: Georgia, "Times New Roman", serif; font-style: italic; }
+
+/* ! en triángulo — versión incompatible */
+#notice[data-kind="proto"] .n-icon { border-radius: 0; background: none; }
+#notice[data-kind="proto"] .n-icon::before {
+  inset: 0 -1px 1px;
+  background: color-mix(in srgb, var(--n-c) 22%, transparent);
+  clip-path: polygon(50% 4%, 98% 92%, 2% 92%);
+}
+#notice[data-kind="proto"] .n-icon::after {
+  content: "!";
+  position: static;
+  z-index: 1;
+  padding-top: 3px;
+  font-size: 12px;
+}
+
+/* ! en círculo — error */
+#notice[data-kind="error"] .n-icon::before { content: "!"; position: static; }
+
+/* círculo tachado — sin daemon */
+#notice[data-kind="local"] .n-icon::before {
+  inset: 6px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+#notice[data-kind="local"] .n-icon::after {
+  width: 1.5px;
+  height: 14px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: rotate(-45deg);
+}
+
+/* dos ventanas — otra ventana tomó el control */
+#notice[data-kind="taken_over"] .n-icon::before,
+#notice[data-kind="taken_over"] .n-icon::after {
+  width: 8px;
+  height: 7px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+#notice[data-kind="taken_over"] .n-icon::before { left: 5px; top: 5px; opacity: .55; }
+#notice[data-kind="taken_over"] .n-icon::after {
+  left: 8px; top: 9px;
+  background: color-mix(in srgb, var(--n-c) 17%, var(--tab));
+}
+
+/* flecha arriba — hay versión nueva */
+#notice[data-kind="update"] .n-icon::before {
+  top: 6px;
+  width: 6px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 1.75px 0 0 1.75px;
+  transform: rotate(45deg);
+}
+#notice[data-kind="update"] .n-icon::after {
+  top: 7px;
+  width: 1.75px;
+  height: 9px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+/* visto — al día / listo */
+#notice:is([data-kind="uptodate"], [data-kind="updated"]) .n-icon::before {
+  top: 6px;
+  left: 8px;
+  width: 5px;
+  height: 9px;
+  border: solid currentColor;
+  border-width: 0 1.75px 1.75px 0;
+  transform: rotate(45deg);
+}
+
+/* anillo girando — actualizando */
+#notice[data-kind="updating"] .n-icon { background: none; }
+#notice[data-kind="updating"] .n-icon::before {
+  inset: 2px;
+  border: 2px solid color-mix(in srgb, var(--n-c) 22%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: n-spin .9s linear infinite;
+}
+
+/* ---------- texto ---------- */
+
+.n-text {
+  grid-area: text;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  min-height: 0;
+  padding-top: 1px;
+}
+.n-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .005em;
+  overflow-wrap: anywhere;
+}
+.n-msg {
+  color: #c4cad8;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.n-title:empty,
+.n-msg:empty,
+.n-list:empty { display: none; }
+
+/* Lista de cambios: unas 6 líneas visibles y scroll; sombra inferior si hay más. */
+.n-list {
+  --n-lh: 1.45em;
+  margin: 7px 0 1px;
+  padding: 5px 8px 5px 10px;
+  max-height: calc(6 * var(--n-lh) + 10px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  border: 1px solid var(--n-line);
+  border-radius: 7px;
+  background:
+    linear-gradient(transparent, var(--bar) 70%) 0 100% / 100% 16px no-repeat local,
+    radial-gradient(farthest-side at 50% 100%, #0009, transparent) 0 100% / 100% 7px no-repeat scroll,
+    var(--bar);
+  color: #d5dae4;
+  font-size: 11.5px;
+  line-height: var(--n-lh);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.n-list li {
+  position: relative;
+  padding-left: 12px;
+  overflow-wrap: anywhere;
+}
+.n-list li::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: calc(var(--n-lh) / 2 - 2px);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--n-c);
+  opacity: .8;
+}
+.n-list code {
+  font: 11px var(--h-mono, ui-monospace, "SF Mono", Menlo, monospace);
+  color: var(--text);
+}
+.n-list::-webkit-scrollbar { width: 8px; }
+.n-list::-webkit-scrollbar-thumb { border: 2px solid var(--bar); border-radius: 8px; background: #ffffff22; }
+
+/* ---------- progreso ---------- */
+
+.n-progress {
+  display: none;
+  position: relative;
+  height: 4px;
+  margin: 8px 0 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #ffffff12;
+}
+#notice:is([data-kind="updating"], .n-busy) .n-progress { display: block; }
+.n-progress::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 38%;
+  border-radius: inherit;
+  background: var(--n-c);
+  animation: n-indet 1.25s var(--n-ease) infinite;
+}
+#notice[data-p] .n-progress::after {
+  width: calc(clamp(0, var(--p, 0), 100) * 1%);
+  animation: none;
+  transition: width .25s ease;
+}
+
+/* ---------- acciones ---------- */
+
+.n-actions {
+  grid-area: acts;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+  padding-right: 4px;
+}
+.n-actions:empty { display: none; }
+
+.n-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  font-weight: 500 !important;
+  white-space: nowrap;
+  transition: background-color .12s ease, color .12s ease, box-shadow .12s ease;
+}
+/* Botón por defecto a la derecha, como en macOS, sea cual sea el orden en que lo cree JS. */
+.n-actions .primary { order: 1; background: var(--accent); color: #1b0e06 !important; }
+.n-actions .primary:hover { background: #f09461; }
+.n-actions .primary:active { background: #d9773f; }
+
+.n-actions .secondary {
+  background: #ffffff0b;
+  box-shadow: inset 0 0 0 1px var(--n-line);
+  color: var(--text) !important;
+}
+.n-actions .secondary:hover { background: #ffffff16; }
+.n-actions .secondary:active { background: #ffffff1f; }
+
+/* Opcional: acción destructiva (mismo aspecto que .v-danger). */
+.n-actions .danger { background: #f2675f26; color: var(--n-err) !important; }
+.n-actions .danger:hover { background: #f2675f3d; }
+
+.n-actions button:disabled { opacity: .55; }
+
+/* ---------- cerrar ---------- */
+
+/* Mismo aspecto que .h-close / .v-icon. */
+.n-close {
+  grid-area: close;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: -3px 0 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted) !important;
+  font-size: 15px !important;
+  line-height: 1;
+  transition: background-color .12s ease, color .12s ease;
+}
+.n-close:hover { background: #ffffff12; color: var(--text) !important; }
+.n-close:active { background: #ffffff1c; }
+
+/* ---------- animaciones ---------- */
+
+@keyframes n-spin { to { transform: rotate(360deg); } }
+@keyframes n-indet {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(270%); }
+}
+
+/* ---------- ventanas estrechas ---------- */
+
+@media (max-width: 520px) {
+  :root { --n-gutter: 12px; --n-bottom: 10px; }
+  #notice { width: calc(100vw - 2 * var(--n-gutter)); }
+  /* Con la caja fuerte abierta no hay sitio al lado: el aviso va por encima. */
+  body.vault-open #notice, body[data-side] #notice { right: var(--n-gutter); }
+  .n-actions { padding-right: 0; }
+  .n-actions button { flex: 1 1 auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #notice, #notice.open { transform: none; transition: opacity .01s linear, visibility 0s; }
+  #notice * { transition: none !important; }
+  #notice[data-kind="updating"] .n-icon::before { animation-duration: 3s; }
+  /* Indeterminada sin desplazamiento: barra completa atenuada. */
+  .n-progress::after { width: 100%; opacity: .45; animation: none; }
+}

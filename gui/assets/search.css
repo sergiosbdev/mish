@@ -1,0 +1,146 @@
+/* Mish.app — barra de búsqueda en el terminal (⌘F). Usa las variables de app.css y vault.css.
+   Vive dentro de #panes: hereda su offset (top: --bar-h y, con la caja fuerte abierta,
+   right: --vault-w), así que siempre queda arriba a la derecha del área de terminal. */
+
+:root {
+  --s-line: #232b3d;
+  --s-red: #f2675f;
+  --s-ease: cubic-bezier(.2, .8, .2, 1);
+  --s-dur: .14s;
+  /* Hueco a la derecha para no tapar la scrollbar de xterm. */
+  --s-gutter: 20px;
+}
+
+#search {
+  position: absolute;
+  top: 8px;
+  right: var(--s-gutter);
+  /* Por encima del canvas y de los helpers de xterm (hasta z-index 11). */
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  max-width: calc(100% - var(--s-gutter) - 12px);
+  padding: 0 4px 0 4px;
+  border: 1px solid var(--s-line);
+  border-radius: 9px;
+  background: var(--tab);
+  box-shadow: 0 10px 28px -12px #000c, 0 1px 0 #ffffff08 inset;
+  color: var(--text);
+  opacity: 0;
+  transform: translateY(-6px);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--s-dur) ease,
+    transform var(--s-dur) var(--s-ease),
+    visibility 0s linear var(--s-dur);
+}
+#search.open {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity var(--s-dur) ease, transform var(--s-dur) var(--s-ease);
+}
+
+/* ---------- campo ---------- */
+
+#search .s-q {
+  flex: 1 1 auto;
+  width: 190px;
+  min-width: 80px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--bar);
+  color: var(--text);
+  font: 12px -apple-system, BlinkMacSystemFont, sans-serif;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+#search .s-q::placeholder { color: #5d6880; }
+#search .s-q:focus {
+  border-color: #e8854c99;
+  box-shadow: 0 0 0 3px #e8854c1f;
+}
+
+/* ---------- contador ---------- */
+
+#search .s-count {
+  flex: none;
+  min-width: 0;
+  padding: 0 6px 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+#search .s-count:empty { display: none; }
+
+/* Sin resultados: el contador y el borde del campo en rojo suave. */
+#search.s-none .s-count,
+#search .s-count.s-none { color: var(--s-red); }
+#search.s-none .s-q,
+#search.s-none .s-q:focus {
+  border-color: #f2675f80;
+  box-shadow: 0 0 0 3px #f2675f1a;
+}
+
+/* ---------- botones ---------- */
+
+#search button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: 14px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  cursor: default;
+  transition: background-color .12s ease, color .12s ease;
+}
+#search button:hover { background: #ffffff12; color: var(--text); }
+#search button:active { background: #ffffff1c; }
+#search button:focus-visible { outline: 2px solid #e8854cb3; outline-offset: 1px; }
+
+#search .s-case {
+  width: 26px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+#search .s-case[aria-pressed="true"] {
+  background: #e8854c26;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px #e8854c59;
+}
+#search .s-case[aria-pressed="true"]:hover { background: #e8854c38; }
+
+/* Separador fino entre el bloque de opciones y la navegación. */
+#search .s-prev { margin-left: 3px; position: relative; }
+#search .s-prev::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 5px;
+  bottom: 5px;
+  width: 1px;
+  background: var(--s-line);
+}
+
+#search .s-close { font-size: 16px; }
+#search .s-close:hover { color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  #search, #search.open { transform: none; transition: none; }
+  #search * { transition: none !important; }
+}

@@ -1,0 +1,15 @@
+[package]
+name = "mish-daemon"
+version = "0.2.0"
+edition = "2024"
+description = "Daemon de sesiones persistentes de Mish (PTYs que sobreviven a la GUI)"
+publish = false
+
+[[bin]]
+name = "mish-daemon"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2.191"
+mish-proto = { path = "../proto" }
+portable-pty = "0.9.0"

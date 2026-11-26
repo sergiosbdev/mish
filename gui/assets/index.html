@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>mish</title>
+  <link rel="stylesheet" href="xterm.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="vault.css">
+  <link rel="stylesheet" href="search.css">
+  <link rel="stylesheet" href="help.css">
+  <link rel="stylesheet" href="notice.css">
+  <link rel="stylesheet" href="claude.css">
+  <link rel="stylesheet" href="git.css">
+</head>
+<body>
+  <header id="bar">
+    <nav id="tabs"></nav>
+    <button id="add" title="Nueva pestaña (⌘T)">+</button>
+    <div id="drag"></div>
+  </header>
+  <main id="panes">
+    <div id="search" role="search" aria-label="Buscar en el terminal">
+      <input class="s-q" type="text" placeholder="Buscar" autocomplete="off" spellcheck="false" aria-label="Texto a buscar">
+      <span class="s-count" aria-live="polite"></span>
+      <button class="s-case" type="button" aria-pressed="false" title="Distinguir mayúsculas">Aa</button>
+      <button class="s-prev" type="button" title="Anterior (⇧Enter)">↑</button>
+      <button class="s-next" type="button" title="Siguiente (Enter)">↓</button>
+      <button class="s-close" type="button" title="Cerrar (Esc)">×</button>
+    </div>
+  </main>
+  <div id="help" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+    <div class="h-card">
+      <header class="h-head"><h2 id="help-title" class="h-title">Atajos de teclado</h2>
+        <input class="h-filter" type="search" placeholder="Filtrar" autocomplete="off" spellcheck="false" aria-label="Filtrar atajos">
+        <button class="h-close" type="button" aria-label="Cerrar">×</button></header>
+      <div class="h-body"></div>
+    </div>
+  </div>
+  <div id="notice" role="status" aria-live="polite" hidden>
+    <div class="n-icon" aria-hidden="true"></div>
+    <div class="n-text"><strong class="n-title"></strong><span class="n-msg"></span><ul class="n-list"></ul><div class="n-progress" aria-hidden="true"></div></div>
+    <div class="n-actions"></div>
+    <button class="n-close" type="button" aria-label="Cerrar">×</button>
+  </div>
+  <aside id="gitpanel" class="side-panel" aria-label="Git" hidden>
+    <header class="g-head"><div class="g-title"><span class="g-repo"></span><span class="g-branch"></span><span class="g-sync"></span></div><button class="g-refresh" type="button" title="Actualizar">⟳</button><button class="g-close" type="button" title="Cerrar (Esc)">×</button></header>
+    <nav class="g-tabs" role="tablist"><button role="tab" data-tab="changes">Cambios</button><button role="tab" data-tab="prs">PRs</button><button role="tab" data-tab="issues">Issues</button><button role="tab" data-tab="search">Buscar</button></nav>
+    <section class="g-view" data-view="changes"><ul class="g-files"></ul><div class="g-diff"></div></section>
+    <section class="g-view" data-view="prs"><ul class="g-list"></ul></section>
+    <section class="g-view" data-view="issues"><ul class="g-list"></ul></section>
+    <section class="g-view" data-view="search"><div class="g-search"><input class="g-q" type="search" placeholder="Buscar en el repo" autocomplete="off" spellcheck="false"><label class="g-regex-l"><input class="g-regex" type="checkbox"> regex</label></div><ul class="g-hits"></ul></section>
+    <div class="g-state"></div>
+  </aside>
+  <script src="xterm.js"></script>
+  <script src="addon-fit.js"></script>
+  <script src="addon-webgl.js"></script>
+  <script src="addon-web-links.js"></script>
+  <script src="addon-search.js"></script>
+  <script src="layout.js"></script>
+  <script src="app.js"></script>
+  <script src="side.js"></script>
+  <script src="vault.js"></script>
+  <script src="search.js"></script>
+  <script src="help.js"></script>
+  <script src="git.js"></script>
+</body>
+</html>

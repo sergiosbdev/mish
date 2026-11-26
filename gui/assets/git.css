@@ -1,0 +1,664 @@
+/* Mish.app — panel lateral git (⌘⇧G). Usa las variables de app.css, vault.css y notice.css
+   (con valores de reserva por si falta alguna).
+
+   Contrato (marcado en index.html; clases y estados los pone git.js, todo con textContent):
+     #gitpanel.open                    visible. Lo manda .open: el atributo [hidden] da igual
+                                       (como #notice), así la salida también se anima.
+     body[data-side="git"|"vault"]     qué panel ocupa el lateral; vault.css desplaza #panes
+                                       con --side-w (git 420 px, 360 px si la ventana < 900 px).
+     .g-head  .g-repo .g-branch .g-sync   título; .g-sync vacío = oculto (p. ej. «↑2 ↓1»).
+     .g-refresh / .g-close             botones; ⟳ gira mientras .g-state es "loading".
+     .g-tabs button[aria-selected="true"]  pestaña activa (control segmentado).
+     .g-view.active                    vista visible; las demás, display:none.
+     .g-state[data-kind="loading|empty|error"]
+                                       sin data-kind (o con otro valor) = oculto.
+                                       loading: barra indeterminada bajo las pestañas; el texto
+                                       solo se ve si la vista activa aún no tiene filas.
+                                       empty/error: mensaje centrado que tapa la vista activa.
+     Vista Cambios: .g-files (alto máx. 40 %) arriba y .g-diff debajo, cada una con su scroll.
+       li.g-group                      cabecera de grupo (pegajosa al hacer scroll).
+       li.g-file[data-st="staged|unstaged|untracked|conflict"] > .g-st + .g-path
+                                       .g-st = letra (M, A, D, R, ?, U…) coloreada por data-st.
+       li.selected                     fila elegida.
+       .g-diff > pre > (una línea por elemento, span o div, con o sin "\n" final)
+                 .l-add .l-del .l-hunk .l-meta .l-ctx
+       .g-diff .g-trunc                aviso de diff recortado (dentro de .g-diff, antes o
+                                       después del pre). .g-diff vacío muestra una ayuda.
+     li.g-group[data-count]          el contador sale alineado a la derecha.
+     .g-hits > li.g-trunc            aviso de resultados recortados (no es una fila).
+     .g-label                        ver «Etiquetas» abajo.
+     PRs: li.g-pr[data-ci="ok|fail|pending|none"] > .g-num .g-ttl .g-meta
+                                       el punto de CI es un ::before del li.
+     Issues: li.g-issue > .g-num .g-ttl .g-labels > span.g-label, .g-meta
+     Buscar: .g-search (.g-q + label.g-regex-l > .g-regex), li.g-hit > .g-path .g-line .g-text
+                                       con <mark> en .g-text.
+     Filas (li salvo .g-group): clicables; si JS les da tabindex, tienen foco visible.
+
+   Rutas largas (.g-path): elipsis por la izquierda para que siempre se vea el nombre del
+   fichero. Truco: direction:rtl + marcas LRM (U+200E) en ::before/::after, que fijan como
+   LTR los neutros de los extremos (".github/…", "dir/"); el texto sigue en orden normal.
+
+   Etiquetas (.g-label): git.js pone el color de GitHub como background inline (style.
+   backgroundColor). Para que se lea con cualquier color (claro u oscuro) el CSS no depende
+   de él: el borde transparente deja ver el color puro como contorno, y un box-shadow inset
+   (se pinta encima del fondo y debajo del texto) lo cubre con el fondo del panel al 78 %.
+   Queda una pastilla oscura teñida del color de la etiqueta con el texto claro del panel
+   (color con !important: gana a un style.color inline si JS lo pone). Contraste ≥ 7:1 sea
+   cual sea el color, y el contorno conserva el color exacto de GitHub. */
+
+:root {
+  --g-line: var(--v-line, #1c2232);
+  --g-faint: var(--v-faint, #5d6880);
+  --g-hover: var(--v-hover, #ffffff0f);
+  --g-ok: var(--n-ok, #6fcf8f);
+  --g-warn: var(--n-warn, #f0bf4c);
+  --g-err: var(--n-err, #f2675f);
+  --g-info: var(--n-info, #86a6df);
+  --g-mono: var(--v-mono, ui-monospace, "SF Mono", Menlo, monospace);
+  --g-ease: var(--v-ease, cubic-bezier(.2, .8, .2, 1));
+  --g-dur: var(--v-dur, .18s);
+  --g-head-h: 40px;
+  --g-tabs-h: 38px;
+}
+
+/* ================= capa ================= */
+
+.side-panel {
+  position: absolute;
+  top: var(--bar-h);
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--bar);
+  border-left: 1px solid var(--g-line);
+  box-shadow: -18px 0 32px -24px #000;
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform var(--g-dur) var(--g-ease), visibility 0s linear var(--g-dur);
+}
+.side-panel.open {
+  transform: none;
+  visibility: visible;
+  transition: transform var(--g-dur) var(--g-ease);
+}
+#gitpanel { width: var(--git-w, 420px); }
+#gitpanel [hidden] { display: none !important; }
+
+/* :where() sin especificidad: las reglas de cada botón mandan sin !important. */
+:where(#gitpanel) button {
+  font: inherit;
+  color: inherit;
+  cursor: default;
+}
+#gitpanel :focus-visible { outline: 2px solid #e8854cb3; outline-offset: 1px; }
+
+:where(#gitpanel) ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Scroll interno con barra fina (como .v-list). */
+#gitpanel :is(.g-files, .g-diff, .g-list, .g-hits) {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+#gitpanel :is(.g-files, .g-diff, .g-list, .g-hits)::-webkit-scrollbar { width: 8px; height: 8px; }
+#gitpanel :is(.g-files, .g-diff, .g-list, .g-hits)::-webkit-scrollbar-thumb {
+  border: 2px solid var(--bar);
+  border-radius: 8px;
+  background: #ffffff1c;
+}
+#gitpanel :is(.g-files, .g-diff, .g-list, .g-hits)::-webkit-scrollbar-thumb:hover { background: #ffffff2e; }
+#gitpanel :is(.g-files, .g-diff, .g-list, .g-hits)::-webkit-scrollbar-corner { background: transparent; }
+
+/* ================= cabecera ================= */
+
+.g-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--g-head-h);
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--g-line);
+}
+.g-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.g-repo {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.g-branch {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 15px;
+  color: var(--muted);
+  font: 11px/16px var(--g-mono);
+}
+.g-branch:empty { display: none; }
+/* Icono de rama: SVG como máscara, toma el color del texto. */
+.g-branch::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  background: currentColor;
+  opacity: .8;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='4' cy='3.2' r='1.7'/%3E%3Ccircle cx='4' cy='12.8' r='1.7'/%3E%3Ccircle cx='12' cy='4.8' r='1.7'/%3E%3Cpath d='M4 4.9v6.2M12 6.5c0 3-3 3.4-6.6 5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='4' cy='3.2' r='1.7'/%3E%3Ccircle cx='4' cy='12.8' r='1.7'/%3E%3Ccircle cx='12' cy='4.8' r='1.7'/%3E%3Cpath d='M4 4.9v6.2M12 6.5c0 3-3 3.4-6.6 5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.g-sync {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: #ffffff0d;
+  color: var(--muted);
+  font: 10.5px var(--g-mono);
+  line-height: 15px;
+}
+.g-sync:empty { display: none; }
+
+.g-refresh, .g-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  transition: background-color .12s ease, color .12s ease;
+}
+.g-refresh { font-size: 15px; }
+.g-refresh:hover, .g-close:hover { background: #ffffff12; color: var(--text); }
+.g-refresh:active { transform: scale(.92); }
+#gitpanel:has(.g-state[data-kind="loading"]) .g-refresh {
+  color: var(--accent);
+  animation: g-spin .9s linear infinite;
+}
+@keyframes g-spin { to { transform: rotate(360deg); } }
+
+/* ================= pestañas (control segmentado) ================= */
+
+.g-tabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  height: var(--g-tabs-h);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--g-line);
+}
+.g-tabs button {
+  flex: 1;
+  min-width: 0;
+  height: 25px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color .12s ease, color .12s ease, box-shadow .12s ease;
+}
+.g-tabs button:hover { background: var(--g-hover); color: var(--text); }
+.g-tabs button[aria-selected="true"] {
+  background: var(--tab-active);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px #ffffff0d, 0 1px 2px #0006;
+}
+.g-tabs button:focus-visible { outline-offset: -1px; }
+
+/* ================= vistas ================= */
+
+.g-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.g-view:not(.active) { display: none; }
+.g-view > ul { flex: 1; min-height: 0; padding: 4px 6px 10px; }
+
+/* Filas comunes: densas, con hover y selección como .v-row. */
+#gitpanel li:not(.g-group, .g-trunc) {
+  position: relative;
+  border-radius: 6px;
+  cursor: default;
+  transition: background-color .1s ease;
+}
+#gitpanel li:not(.g-group, .g-trunc):hover { background: var(--g-hover); }
+#gitpanel li:not(.g-group, .g-trunc):focus-visible {
+  outline: none;
+  background: var(--tab-active);
+  box-shadow: inset 0 0 0 1px #e8854c59;
+}
+#gitpanel li.selected,
+#gitpanel li.selected:hover {
+  background: var(--tab-active);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+#gitpanel li.selected:focus-visible { box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px #e8854c59; }
+
+li.g-group {
+  position: sticky;
+  top: -4px; /* compensa el padding superior de la lista */
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 8px 4px;
+  background: var(--bar);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+li.g-group:first-child { margin-top: 0; }
+li.g-group[data-count]::after {
+  content: attr(data-count);
+  margin-left: auto;
+  color: var(--g-faint);
+  font: 500 10.5px var(--g-mono);
+  letter-spacing: 0;
+}
+
+/* Ruta con elipsis por la izquierda (ver cabecera). */
+#gitpanel .g-path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  font: 12px var(--g-mono);
+}
+#gitpanel .g-path::before,
+#gitpanel .g-path::after { content: "\200E"; }
+
+/* ---------- Cambios ---------- */
+
+.g-view[data-view="changes"] .g-files {
+  flex: 0 1 auto;
+  max-height: 40%;
+  padding: 4px 6px 6px;
+  border-bottom: 1px solid var(--g-line);
+}
+.g-view[data-view="changes"] .g-files:empty { display: none; }
+
+li.g-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 8px;
+}
+li.g-file + li.g-file { margin-top: 1px; }
+.g-st {
+  flex: none;
+  width: 12px;
+  font: 600 11px var(--g-mono);
+  text-align: center;
+}
+li.g-file .g-path { flex: 1; color: var(--text); }
+li.g-file[data-st="staged"]    .g-st { color: var(--g-ok); }
+li.g-file[data-st="unstaged"]  .g-st { color: var(--g-warn); }
+li.g-file[data-st="untracked"] .g-st { color: var(--g-faint); }
+li.g-file[data-st="untracked"] .g-path { color: color-mix(in srgb, var(--text) 70%, var(--muted)); }
+li.g-file[data-st="conflict"]  .g-st { color: var(--g-err); }
+#gitpanel li.g-file[data-st="conflict"]:not(.selected) { background: #f2675f0f; }
+#gitpanel li.g-file[data-st="conflict"]:not(.selected):hover { background: #f2675f1a; }
+
+.g-diff {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.g-diff:empty::before {
+  content: "Elige un fichero para ver su diff";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--g-faint);
+  font-size: 11.5px;
+}
+/* Sin ficheros no hay nada que elegir: la ayuda sobra. */
+.g-files:empty + .g-diff:empty::before { content: none; }
+
+.g-diff pre {
+  display: inline-block; /* crece con la línea más larga: los fondos llegan al final del scroll */
+  min-width: 100%;
+  margin: 0;
+  padding: 6px 0 12px;
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+  font: 12px/1.5 var(--g-mono);
+  white-space: pre;
+  tab-size: 4;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.g-diff pre > * {
+  display: block;
+  min-height: 1.5em;
+  padding: 0 12px 0 10px;
+  border-left: 2px solid transparent;
+}
+.g-diff .l-ctx { color: inherit; }
+.g-diff .l-add { background: #6fcf8f17; border-left-color: #6fcf8f80; color: #b9ecc8; }
+.g-diff .l-del { background: #f2675f17; border-left-color: #f2675f80; color: #f6b5af; }
+.g-diff .l-hunk {
+  margin: 6px 0 2px;
+  background: #86a6df12;
+  color: var(--g-info);
+}
+.g-diff pre > .l-hunk:first-child { margin-top: 0; }
+.g-diff .l-meta { color: var(--g-faint); }
+
+.g-trunc {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #f0bf4c14;
+  box-shadow: inset 0 0 0 1px #f0bf4c33;
+  color: color-mix(in srgb, var(--g-warn) 80%, var(--text));
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: normal;
+}
+.g-trunc::before { content: "⚠"; flex: none; }
+
+/* ---------- PRs e issues ---------- */
+
+li.g-pr, li.g-issue {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 7px 10px 7px 8px;
+}
+li.g-pr { grid-template-columns: 8px auto 1fr; padding-left: 10px; }
+li.g-pr + li.g-pr, li.g-issue + li.g-issue { margin-top: 1px; }
+
+.g-num {
+  grid-row: 1;
+  color: var(--g-faint);
+  font: 11px/18px var(--g-mono);
+  white-space: nowrap;
+}
+.g-ttl {
+  grid-row: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+li.g-pr .g-num { grid-column: 2; }
+li.g-pr .g-ttl { grid-column: 3; }
+li.g-issue .g-num { grid-column: 1; }
+li.g-issue .g-ttl { grid-column: 2; }
+.g-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+li.g-pr .g-meta { grid-column: 3; }
+li.g-issue .g-meta, li.g-issue .g-labels { grid-column: 2; }
+
+/* Punto de CI: alineado con la primera línea del título. */
+li.g-pr::before {
+  content: "";
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+  width: 7px;
+  height: 7px;
+  margin-top: 5.5px;
+  border-radius: 50%;
+  background: var(--g-faint);
+}
+li.g-pr[data-ci="ok"]::before { background: var(--g-ok); }
+li.g-pr[data-ci="fail"]::before { background: var(--g-err); box-shadow: 0 0 0 3px #f2675f26; }
+li.g-pr[data-ci="pending"]::before { background: var(--g-warn); animation: g-pulse 1.4s ease-in-out infinite; }
+li.g-pr[data-ci="none"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--g-faint); }
+@keyframes g-pulse { 50% { opacity: .35; } }
+
+.g-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 1px;
+}
+.g-labels:empty { display: none; }
+.g-label {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 7px;
+  border: 1px solid transparent; /* deja ver el color inline como contorno */
+  border-radius: 9px;
+  background-color: var(--g-faint); /* si JS no pone color */
+  background-clip: border-box;
+  /* El anillo exterior tenue solo se nota en etiquetas casi negras (contorno invisible). */
+  box-shadow: inset 0 0 0 99px color-mix(in srgb, var(--bar) 78%, transparent), 0 0 0 1px #ffffff14;
+  color: var(--text) !important; /* el fondo real es oscuro: ignora el color inline */
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+/* ---------- Buscar ---------- */
+
+.g-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 8px;
+}
+.g-q {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px 0 29px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  background: var(--tab) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 16 16' fill='none' stroke='%235d6880' stroke-width='1.7' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='4.8'/%3E%3Cpath d='m10.6 10.6 3.6 3.6'/%3E%3C/svg%3E") 10px 50% no-repeat;
+  color: var(--text);
+  font: 12px -apple-system, BlinkMacSystemFont, sans-serif;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+  transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+.g-q::placeholder { color: var(--g-faint); }
+#gitpanel .g-q:focus-visible { outline: none; } /* ya lleva anillo propio (como .vault input) */
+.g-q:focus {
+  border-color: #e8854c99;
+  background-color: var(--tab-active);
+  box-shadow: 0 0 0 3px #e8854c1f;
+}
+.g-q::-webkit-search-cancel-button { filter: invert(.6); }
+.g-regex-l {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--muted);
+  font: 11px var(--g-mono);
+}
+.g-regex-l:hover { background: var(--g-hover); color: var(--text); }
+.g-regex-l:has(.g-regex:checked) { color: var(--accent); background: #e8854c14; }
+.g-regex { margin: 0; accent-color: var(--accent); }
+.g-regex:focus-visible { outline-offset: 2px; }
+
+.g-view[data-view="search"] .g-hits { padding-top: 0; }
+li.g-hit {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+  padding: 5px 8px 6px;
+}
+li.g-hit + li.g-hit { margin-top: 1px; }
+li.g-hit .g-path { grid-column: 1; grid-row: 1; color: var(--muted); font-size: 11px; line-height: 16px; }
+.g-line {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--g-faint);
+  font: 11px/16px var(--g-mono);
+}
+.g-line:not(:empty)::before { content: "L"; opacity: .7; }
+.g-text {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  color: color-mix(in srgb, var(--text) 85%, var(--muted));
+  font: 12px/18px var(--g-mono);
+}
+.g-text mark {
+  border-radius: 3px;
+  background: #e8854c3d;
+  box-shadow: 0 0 0 1px #e8854c4d;
+  color: var(--text);
+}
+
+/* ================= estado ================= */
+
+.g-state {
+  position: absolute;
+  top: calc(var(--g-head-h) + var(--g-tabs-h));
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: none;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 24px 28px;
+  background: var(--bar);
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: center;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+/* En Buscar el estado (sin resultados, regex no válida…) deja ver la caja de búsqueda. */
+#gitpanel:has(.g-view[data-view="search"].active) .g-state { top: calc(var(--g-head-h) + var(--g-tabs-h) + 48px); }
+
+.g-state:is([data-kind="loading"], [data-kind="empty"], [data-kind="error"]) { display: grid; }
+.g-state::before { flex: none; }
+
+.g-state[data-kind="empty"]::before,
+.g-state[data-kind="error"]::before {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  font: 600 15px var(--g-mono);
+}
+.g-state[data-kind="empty"]::before {
+  content: "✓";
+  background: #ffffff0a;
+  box-shadow: inset 0 0 0 1px var(--g-line);
+  color: var(--g-faint);
+}
+.g-state[data-kind="error"] { color: color-mix(in srgb, var(--g-err) 70%, var(--text)); }
+.g-state[data-kind="error"]::before {
+  content: "!";
+  background: #f2675f1a;
+  box-shadow: inset 0 0 0 1px #f2675f40;
+  color: var(--g-err);
+}
+
+/* Cargando: no tapa nada. Barra indeterminada de 2 px bajo las pestañas; el texto solo
+   aparece si la vista activa todavía está vacía (primera carga). */
+.g-state[data-kind="loading"] {
+  background: transparent;
+  pointer-events: none;
+  animation: g-fade .3s ease .15s both; /* las cargas rápidas no parpadean */
+}
+.g-state[data-kind="loading"]::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent) 50%, transparent) 0 0 / 40% 100% no-repeat;
+  animation: g-bar 1.1s var(--g-ease) infinite;
+}
+#gitpanel:has(.g-view.active li) .g-state[data-kind="loading"] { color: transparent; }
+@keyframes g-bar {
+  from { background-position: -70% 0; }
+  to   { background-position: 170% 0; }
+}
+@keyframes g-fade { from { opacity: 0; } }
+
+/* ================= movimiento reducido ================= */
+
+@media (prefers-reduced-motion: reduce) {
+  .side-panel, .side-panel.open { transition: none; }
+  #gitpanel *, #gitpanel *::before, #gitpanel *::after { transition: none !important; }
+  #gitpanel:has(.g-state[data-kind="loading"]) .g-refresh { animation: none; }
+  li.g-pr[data-ci="pending"]::before { animation: none; }
+  .g-state[data-kind="loading"] { animation: none; }
+  /* Barra estática atenuada en vez de desplazamiento. */
+  .g-state[data-kind="loading"]::before {
+    animation: none;
+    background: var(--accent);
+    opacity: .45;
+  }
+}

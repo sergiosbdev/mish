@@ -1,0 +1,11 @@
+[package]
+name = "mish-proto"
+version = "0.2.0"
+edition = "2024"
+description = "Protocolo de socket entre mish-daemon y sus clientes (GUI, hooks, ctl)"
+publish = false
+
+[dependencies]
+libc = "0.2.191"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
