@@ -3,6 +3,8 @@
 // Los secretos nunca llegan al webview: Rust solo nos manda nombres y usuarios
 // (window.mishVault) y es él quien escribe en el PTY (vault_type) o copia (vault_copy).
 // Aquí solo pasan por los <input> de contraseña, que se vacían nada más enviarlos.
+// Touch ID: Rust pide la huella y lee la clave del llavero (vault_unlock_bio); aquí solo
+// llega {bio: "unavailable"|"off"|"on", bio_pending} para elegir la vista.
 //
 // Supuestos sobre app.js (script clásico, cargado ANTES que este fichero):
 // - window.mishFocused() devuelve el panel enfocado de la pestaña activa ({id: sid, term,
@@ -64,6 +66,11 @@
     eye: svg('<path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/>', 14),
     eyeOff: svg('<path d="M3 3l18 18M10.6 5.6A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-3 3.8M6.6 6.7C3.9 8.4 2.5 12 2.5 12s3.5 6.5 9.5 6.5c1.6 0 3-.4 4.2-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>', 14),
   };
+  const FINGER = '<path d="M5.2 9.2A7.6 7.6 0 0 1 19 9.6"/><path d="M4.6 14.6c.6-1.1.9-2.3.9-3.6a6.5 6.5 0 0 1 11.8-3.7"/>' +
+    '<path d="M18.6 11.8c0 2.8-.4 5.3-1.3 7.4"/><path d="M8.6 18.8a12 12 0 0 0 1.4-5.7v-2a2 2 0 0 1 4 0v2c0 2.6-.5 5-1.4 7"/>' +
+    '<path d="M15.6 13.4c0 2.1-.3 4-.9 5.8"/><path d="M7 16.8c.6-1.3.9-2.8.9-4.4v-1.3a4.1 4.1 0 0 1 7.6-2.1"/>';
+  ICON.finger = svg(FINGER, 22);
+  ICON.fingerSm = svg(FINGER, 14);
 
   const INPUT = 'autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"';
 
@@ -80,6 +87,7 @@
     <header class="v-head">
       <span class="v-dot" aria-hidden="true"></span>
       <h2 class="v-title">Caja fuerte</h2>
+      <button class="v-icon v-bio-toggle" type="button" aria-pressed="false" hidden>${ICON.fingerSm}</button>
       <button class="v-btn v-ghost v-sm v-lock" type="button" title="Bloquear la caja fuerte" hidden>${ICON.lock}<span>Bloquear</span></button>
       <button class="v-icon v-close" type="button" title="Cerrar (Esc)" aria-label="Cerrar panel">×</button>
     </header>
@@ -101,13 +109,20 @@
     </form>
 
     <form class="v-view v-gate" data-view="locked" novalidate>
-      <div class="v-emblem">${ICON.lockBig}</div>
+      <div class="v-emblem v-locked-emblem">${ICON.lockBig}</div>
       <h3>Caja fuerte bloqueada</h3>
-      <p class="v-muted">Introduce la contraseña maestra para ver tus entradas.</p>
-      <label class="v-field"><span class="v-sr">Contraseña maestra</span>
+      <p class="v-muted v-locked-hint"></p>
+      <label class="v-field v-pw-only"><span class="v-sr">Contraseña maestra</span>
         <input class="v-pw" type="password" name="pw" placeholder="Contraseña maestra" ${INPUT} required></label>
+      <label class="v-check v-pw-only" hidden>
+        <input type="checkbox" name="bio" checked><span>Activar Touch ID al desbloquear</span></label>
       <p class="v-msg" role="alert"></p>
-      <button class="v-btn v-primary v-block" type="submit">Desbloquear</button>
+      <button class="v-btn v-primary v-block v-pw-only" type="submit">Desbloquear</button>
+      <div class="v-bio-gate" hidden>
+        <button class="v-btn v-primary v-block v-bio-go" type="button">${ICON.fingerSm}<span>Desbloquear con Touch ID</span></button>
+        <button class="v-btn v-ghost v-sm v-block v-bio-pw" type="button">Usar la contraseña maestra</button>
+      </div>
+      <button class="v-btn v-ghost v-sm v-bio-back" type="button" hidden>${ICON.fingerSm}<span>Usar Touch ID</span></button>
     </form>
 
     <section class="v-view v-browse" data-view="unlocked">
@@ -155,6 +170,16 @@
   const addForm = $(".v-add", browse);
   const addOpenBtn = $(".v-add-open", browse);
   const revealBtn = $(".v-reveal", addForm);
+  const bioToggle = $(".v-bio-toggle");
+  const lockedEmblem = $(".v-locked-emblem", unlockForm);
+  const lockedHint = $(".v-locked-hint", unlockForm);
+  const bioGate = $(".v-bio-gate", unlockForm);
+  const bioGo = $(".v-bio-go", unlockForm);
+  const bioPwBtn = $(".v-bio-pw", unlockForm);
+  const bioBack = $(".v-bio-back", unlockForm);
+  const bioCheckRow = $(".v-check", unlockForm);
+  const bioCheck = $('input[name="bio"]', unlockForm);
+  const pwOnly = [...unlockForm.querySelectorAll(".v-pw-only")];
 
   // ---------- estado ----------
 
@@ -167,6 +192,14 @@
   let confirming = null;     // nombre de la entrada pendiente de confirmar borrado
   let flash = null;          // {name, text}
   let flashTimer = 0;
+  // Touch ID (la huella la pide Rust; aquí solo se elige vista y se piden operaciones).
+  let bio = "unavailable";   // "unavailable" | "off" | "on" (según Rust)
+  let bioPending = false;    // diálogo de Touch ID abierto (según Rust)
+  let pwMode = false;        // con Touch ID activado, el usuario eligió la contraseña
+  let autoBio = false;       // pedir la huella con la primera respuesta tras abrir el panel
+  let bioAttempt = false;    // el último intento de desbloqueo fue con la huella
+  let quietBio = false;      // cancelado a propósito: no mostrar "Touch ID cancelado"
+  let enableAfter = false;   // activar Touch ID al terminar el desbloqueo con contraseña
 
   // ---------- utilidades de UI ----------
 
@@ -218,12 +251,48 @@
     return state || "loading";
   }
 
+  // Vista de huella en lugar del campo de contraseña.
+  const bioView = () => state === "locked" && bio === "on" && !pwMode;
+
   function render() {
     const v = currentView();
     root.dataset.state = v;
     for (const el of views) el.hidden = el.dataset.view !== v;
     lockBtn.hidden = v !== "unlocked";
+    if (v === "locked") renderLocked();
+    renderBioToggle(v);
     if (v === "unlocked") renderList();
+  }
+
+  function renderLocked() {
+    const bv = bioView();
+    const hadFocus = unlockForm.contains(document.activeElement);
+    for (const el of pwOnly) el.hidden = bv;
+    bioCheckRow.hidden = bv || bio !== "off";
+    bioGate.hidden = !bv;
+    bioBack.hidden = bv || bio !== "on";
+    bioBack.disabled = bioPending;
+    lockedEmblem.innerHTML = bv ? ICON.finger : ICON.lockBig;
+    lockedHint.textContent = bv
+      ? (bioPending ? "Pon el dedo en el sensor Touch ID." : "Usa Touch ID para ver tus entradas.")
+      : "Introduce la contraseña maestra para ver tus entradas.";
+    bioGo.disabled = bioPending;
+    bioGo.classList.toggle("v-busy", bioPending);
+    bioGo.lastElementChild.textContent = bioPending ? "Esperando Touch ID…" : "Desbloquear con Touch ID";
+    // Si el foco estaba en un control que acaba de ocultarse o desactivarse, se recoloca.
+    const fa = document.activeElement;
+    if (isOpen && hadFocus && (!unlockForm.contains(fa) || fa.disabled)) focusPrimary();
+  }
+
+  function renderBioToggle(v) {
+    bioToggle.hidden = v !== "unlocked" || bio === "unavailable";
+    const on = bio === "on";
+    bioToggle.setAttribute("aria-pressed", String(on));
+    bioToggle.disabled = bioPending;
+    bioToggle.classList.toggle("v-busy", bioPending);
+    const label = on ? "Touch ID activado: clic para desactivarlo" : "Desbloquear con Touch ID: clic para activarlo";
+    bioToggle.title = label;
+    bioToggle.setAttribute("aria-label", label);
   }
 
   function filtered() {
@@ -408,7 +477,7 @@
     const v = currentView();
     let el = null;
     if (v === "none") el = $('input[name="pw1"]', createForm);
-    else if (v === "locked") el = $('input[name="pw"]', unlockForm);
+    else if (v === "locked") el = bioView() ? (bioPending ? bioPwBtn : bioGo) : $('input[name="pw"]', unlockForm);
     else if (v === "unlocked") el = addForm.hidden ? search : $('input[name="name"]', addForm);
     if (el) el.focus({ preventScroll: true });
     else root.querySelector(".v-close").focus({ preventScroll: true });
@@ -425,6 +494,8 @@
     root.inert = false;
     root.removeAttribute("aria-hidden");
     root.classList.add("open");
+    pwMode = false;
+    autoBio = true; // con Touch ID activado, abrir el panel pide la huella
     render();
     post({ t: "vault_status" });
     requestAnimationFrame(() => { refit(); focusPrimary(); });
@@ -437,6 +508,7 @@
     const hadFocus = root.contains(document.activeElement);
     wipePasswords();
     confirming = null;
+    autoBio = false;
     root.classList.remove("open");
     root.setAttribute("aria-hidden", "true");
     root.inert = true;
@@ -566,11 +638,42 @@
   unlockPw.addEventListener("input", () => setMsg(unlockMsg, ""));
   unlockForm.addEventListener("submit", (e) => {
     e.preventDefault();
+    if (bioView()) { startBio(); return; }
     if (busy || !unlockPw.value) return;
     const pw = unlockPw.value;
     unlockPw.value = "";
+    enableAfter = bio === "off" && bioCheck.checked;
+    bioAttempt = false;
+    quietBio = bioPending; // Rust cierra el diálogo pendiente: su cancelación no es un error
     post({ t: "vault_unlock", pw });
     setBusy($('button[type="submit"]', unlockForm), "Desbloqueando…");
+  });
+
+  // Touch ID: la huella la pide Rust (LocalAuthentication); el webview nunca ve la clave.
+  function startBio() {
+    if (bioPending || busy || state !== "locked" || bio !== "on") return;
+    pwMode = false;
+    bioAttempt = true;
+    quietBio = false;
+    setMsg(unlockMsg, "");
+    post({ t: "vault_unlock_bio" });
+  }
+
+  bioGo.addEventListener("click", startBio);
+  bioBack.addEventListener("click", () => { startBio(); render(); });
+  bioPwBtn.addEventListener("click", () => {
+    pwMode = true;
+    if (bioPending) { quietBio = true; post({ t: "vault_bio_cancel" }); }
+    setMsg(unlockMsg, "");
+    render();
+    unlockPw.focus({ preventScroll: true });
+  });
+  bioToggle.addEventListener("click", () => {
+    if (bioPending || state !== "unlocked") return;
+    setMsg(listMsg, "");
+    // Desactivado a mano: la casilla del desbloqueo con contraseña no lo reactiva sola.
+    if (bio === "on") bioCheck.checked = false;
+    post({ t: bio === "on" ? "vault_bio_disable" : "vault_bio_enable" });
   });
 
   // Lista.
@@ -629,19 +732,44 @@
     entries = Array.isArray(s.entries)
       ? s.entries.map((e) => ({ name: String(e && e.name != null ? e.name : ""), user: String(e && e.user != null ? e.user : "") }))
       : [];
-    if (prev === "unlocked" && next !== "unlocked") resetBrowse();
+    if (prev === "unlocked" && next !== "unlocked") { resetBrowse(); pwMode = false; }
     if (confirming && !entries.some((e) => e.name === confirming)) confirming = null;
+    const wasPending = bioPending;
+    bio = ["on", "off", "unavailable"].includes(s.bio) ? s.bio : "unavailable";
+    bioPending = s.bio_pending === true;
+    let error = s.error ? String(s.error) : "";
+    // Falló o se canceló la huella: se pasa a la contraseña (con el aviso, salvo si se pidió).
+    const bioFailed = next === "locked" && error && bioAttempt && !bioPending;
+    if (bioFailed) pwMode = true;
+    if (!bioPending) {
+      if (quietBio && next === "locked" && (wasPending || bioAttempt)) error = "";
+      bioAttempt = false;
+      quietBio = false;
+    }
     state = next;
     clearBusy();
     clearMsgs();
     render();
 
-    if (s.error) {
+    if (error) {
       const target = next === "none" ? createMsg : next === "locked" ? unlockMsg : listMsg;
-      setMsg(target, String(s.error));
+      setMsg(target, error);
     }
+    if (next === "unlocked" && prev !== "unlocked" && enableAfter && bio === "off") {
+      post({ t: "vault_bio_enable" }); // casilla "Activar Touch ID al desbloquear"
+    }
+    if (next !== "unlocked" && error) enableAfter = false;
+    if (next === "unlocked") enableAfter = false;
+
     if (isOpen && prev !== next) focusPrimary();
-    else if (isOpen && s.error && next === "locked") unlockPw.focus({ preventScroll: true });
+    else if (isOpen && bioFailed) unlockPw.focus({ preventScroll: true });
+    else if (isOpen && error && next === "locked" && !bioView()) unlockPw.focus({ preventScroll: true });
+
+    // Primera respuesta tras abrir el panel: con Touch ID activado se pide la huella sola.
+    if (autoBio) {
+      autoBio = false;
+      if (isOpen && next === "locked" && bio === "on" && !pwMode && !bioPending) startBio();
+    }
   };
 
   render();

@@ -226,6 +226,31 @@ body[data-side] #panes { right: var(--side-w, 0px); }
 }
 .vault[data-state="loading"] .v-gate { padding-top: 48px; }
 
+/* ---------- Touch ID ---------- */
+
+.v-bio-gate { display: grid; gap: 6px; width: 100%; }
+.v-bio-back { margin-top: -2px; }
+.v-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-align: left;
+}
+.vault .v-check input {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  box-shadow: none;
+}
+.v-bio-toggle[aria-pressed="true"] { color: var(--v-teal) !important; }
+.v-bio-toggle[aria-pressed="true"]:hover { background: #76d3bf1f; }
+
 /* ---------- lista ---------- */
 
 .v-browse {

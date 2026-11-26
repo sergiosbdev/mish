@@ -50,12 +50,22 @@ agents running side by side, and a steady flow of `ssh` sessions to remote serve
   `set` or `pushd`, and commands not found in `PATH` run through a configurable delegate
   shell (`zsh` by default, `bash`, or any absolute path). Commands with a path (`./x`,
   `/usr/bin/x`) always run directly.
+- **Multi-line paste.** A pasted block runs command by command, as if typed line by line
+  (`cd` still moves mish). `\` continuations are joined; multi-line constructs (`for … done`,
+  `if … fi`, heredocs, quotes spanning lines) stay together and go to the delegate shell.
 - **Quick navigation.** `z <pattern>` jumps to the most frequently used matching directory
-  (it learns as you go); `ir <name>` jumps to a bookmarked directory from your config.
+  (it learns as you go, per machine); `ir <name>` jumps to a bookmarked directory from your
+  config. The welcome panel lists the folders you actually visited most recently on this
+  machine (missing ones are skipped).
 - **Servers.** Hosts are read from `~/.ssh/config`. `s <name>` connects, `s <name> 'cmd'`
   runs a remote command, `servers` lists them and `servers -p` checks which ones respond.
 - **Completion and suggestions.** Tab completes commands, aliases, servers, bookmarks and
-  paths; → accepts the inline suggestion from history; Ctrl+R opens a searchable history list.
+  paths; → accepts the inline suggestion from history; ↑ with text typed walks back through
+  commands starting with it.
+- **History search.** Ctrl+R searches history by whatever you remember: several words in any
+  order, case-insensitive, or just their letters in order (`dcup` → `docker compose up`). Most
+  recent first, no duplicates; ↑↓ or Ctrl+R/Ctrl+S to pick, Enter puts it on the line (it does
+  not run it), Esc/Ctrl+G closes.
 - **Live syntax highlighting.** Known commands in green, unknown in red; flags, strings,
   variables and existing paths are coloured as you type.
 - **Informative prompt.** Git branch with staged / modified / untracked counts and
@@ -80,7 +90,8 @@ agents running side by side, and a steady flow of `ssh` sessions to remote serve
   host, and restores it when you disconnect. Colours are automatic or set per server.
 - **Encrypted vault.** Store passwords and have Mish type them straight into the terminal
   (handy for `sudo` prompts and remote logins) or copy them to a clipboard that clears
-  itself after 30 seconds.
+  itself after 30 seconds. On Macs with Touch ID it can unlock with your fingerprint, with
+  the master password as fallback.
 - **Git panel.** ⌘⇧G opens a side panel for the repository of the focused pane: changed
   files grouped as staged, unstaged, untracked and conflicts, with the diff of the selected
   file; open pull requests (CI and review status) and issues via the GitHub CLI (`gh`,
@@ -199,7 +210,7 @@ formato = "{cwd} {git}{tiempo}{estado}❯ "
 
 [tema]                     # theme
 nombre = "cobre"           # "cobre", "pizarra", "bosque" or "papel" (light)
-bienvenida = true          # welcome panel with date, bookmarks and server status
+bienvenida = true          # welcome panel with date, recent folders and server status
 prompt_compacto = true     # collapse past commands to "❯ command"
 
 [avisos]                   # notices
@@ -244,6 +255,14 @@ other one if it does not connect.
   **Argon2id** (64 MiB, 3 passes). The vault locks itself after 5 minutes of inactivity and
   when the app quits. Secrets stay in the native process: the web view that draws the UI
   only ever receives entry names and usernames. Decrypted data is zeroized from memory.
+- **Touch ID (optional).** Enabling it stores the derived vault key (never the master
+  password) in your login keychain, where only the Mish binary that created it can read it
+  without a system prompt; Mish asks for your fingerprint (LocalAuthentication) before
+  reading it. The stored key is discarded when it no longer opens the vault, when you
+  create a new vault, or when the enrolled fingerprints change. Because Mish.app is signed
+  ad hoc, the fingerprint check is enforced by the app rather than by a biometric keychain
+  ACL, and after an update macOS may ask once for your login password to let the new build
+  read the key.
 - **Session daemon.** `mish-daemon` listens on a Unix socket in `~/.local/state/mish/`. The
   directory must be 0700 and owned by you, the socket is 0600, and every connection is
   checked with `getpeereid`: only processes running as your user can attach. Terminal
@@ -317,3 +336,5 @@ It stands on the shoulders of these projects:
 | [portable-pty](https://github.com/wezterm/wezterm/tree/main/pty) | Pseudo-terminals | MIT |
 | [reedline](https://github.com/nushell/reedline) | Line editor of the shell | MIT |
 | [RustCrypto](https://github.com/RustCrypto) (`argon2`, `chacha20poly1305`) | Vault encryption | Apache-2.0 / MIT |
+| [objc2](https://github.com/madsmtm/objc2) (`objc2-local-authentication`) | Touch ID for the vault | MIT / Zlib / Apache-2.0 |
+| [security-framework](https://github.com/kornelski/rust-security-framework) | Keychain access | MIT / Apache-2.0 |

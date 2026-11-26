@@ -11,6 +11,7 @@ mod envpath;
 mod gitpanel;
 mod js;
 mod menu;
+mod touchid;
 mod updates;
 mod vault;
 
@@ -154,6 +155,16 @@ enum Msg {
     VaultUnlock { pw: Zeroizing<String> },
     #[serde(rename = "vault_lock")]
     VaultLock,
+    /// Desbloquear con Touch ID (la clave está en el llavero; nunca pasa por el webview).
+    #[serde(rename = "vault_unlock_bio")]
+    VaultUnlockBio,
+    /// Cerrar el diálogo de Touch ID en curso ("Usar la contraseña maestra").
+    #[serde(rename = "vault_bio_cancel")]
+    VaultBioCancel,
+    #[serde(rename = "vault_bio_enable")]
+    VaultBioEnable,
+    #[serde(rename = "vault_bio_disable")]
+    VaultBioDisable,
     #[serde(rename = "vault_add")]
     VaultAdd { name: String, user: String, secret: Zeroizing<String> },
     #[serde(rename = "vault_delete")]
@@ -861,10 +872,45 @@ fn main() -> wry::Result<()> {
                         // Cada operación responde con window.mishVault({state, entries, error?}).
                         // Los errores son mensajes genéricos de VaultError: nunca llevan secretos.
                         let res: Result<bool, String> = match vault_msg {
-                            Msg::VaultStatus => Ok(true),
+                            Msg::VaultStatus => {
+                                vault.refresh_bio();
+                                Ok(true)
+                            }
                             Msg::VaultLock => {
                                 vault.lock();
                                 Ok(true)
+                            }
+                            Msg::VaultUnlockBio => {
+                                let p = proxy.clone();
+                                vault
+                                    .begin_unlock_bio(move |d| {
+                                        let _ = p.send_event(UserEvent::VaultDone(d));
+                                    })
+                                    // Respuesta inmediata con bio_pending: el panel muestra la espera.
+                                    .map(|_| true)
+                                    .map_err(|e| e.to_string())
+                            }
+                            Msg::VaultBioCancel => {
+                                vault.cancel_bio();
+                                Ok(false)
+                            }
+                            Msg::VaultBioEnable => {
+                                let p = proxy.clone();
+                                vault
+                                    .begin_enable_bio(move |d| {
+                                        let _ = p.send_event(UserEvent::VaultDone(d));
+                                    })
+                                    .map(|_| true)
+                                    .map_err(|e| e.to_string())
+                            }
+                            Msg::VaultBioDisable => {
+                                let p = proxy.clone();
+                                vault
+                                    .begin_disable_bio(move |d| {
+                                        let _ = p.send_event(UserEvent::VaultDone(d));
+                                    })
+                                    .map(|_| true)
+                                    .map_err(|e| e.to_string())
                             }
                             Msg::VaultCreate { pw } => {
                                 let p = proxy.clone();

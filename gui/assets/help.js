@@ -51,6 +51,14 @@
     { grupo: "Búsqueda", teclas: ["⇧", "Enter"], desc: "Coincidencia anterior" },
     { grupo: "Búsqueda", teclas: ["Esc"], desc: "Cerrar la búsqueda" },
 
+    // La shell mish (src/histsearch.rs y build_editor en src/main.rs); xterm.js deja pasar ⌃.
+    { grupo: "Historial de comandos", teclas: ["⌃", "R"], desc: "Buscar un comando por lo que recuerdes: varias palabras en cualquier orden, sin mayúsculas, o sus letras en orden («dcup» → docker compose up)" },
+    { grupo: "Historial de comandos", teclas: [["↑ ↓"], ["⌃", "R"], ["⌃", "S"]], desc: "Con la búsqueda abierta: elegir (más recientes primero)" },
+    { grupo: "Historial de comandos", teclas: ["Enter"], desc: "Poner el comando elegido en la línea (no lo ejecuta)" },
+    { grupo: "Historial de comandos", teclas: [["Esc"], ["⌃", "G"]], desc: "Cerrar la búsqueda" },
+    { grupo: "Historial de comandos", teclas: ["↑"], desc: "Con texto escrito: comandos anteriores que empiezan así" },
+    { grupo: "Historial de comandos", teclas: ["→"], desc: "Aceptar la sugerencia gris del historial" },
+
     // vault.js.
     { grupo: "Caja fuerte", teclas: ["⌘", "⇧", "P"], desc: "Abrir o cerrar la caja fuerte" },
     { grupo: "Caja fuerte", teclas: [["Clic"], ["Enter"]], desc: "Escribir el secreto en el terminal" },
@@ -115,7 +123,7 @@
   const KEY_WORDS = {
     "⌘": "cmd comando command", "⇧": "shift mayus mayusculas", "⌥": "alt opcion option",
     "⌃": "ctrl control", "⌫": "borrar backspace", "−": "menos -", "Esc": "escape",
-    "← ↑ → ↓": "flechas", "↑ ↓": "flechas", "← →": "flechas",
+    "← ↑ → ↓": "flechas", "↑ ↓": "flechas", "← →": "flechas", "↑": "flecha arriba", "→": "flecha derecha",
   };
 
   // teclas → lista de alternativas, cada una una lista de teclas.

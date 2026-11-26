@@ -1,6 +1,6 @@
 [package]
 name = "mish-updater"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Actualizador de Mish.app desde GitHub Releases (sha256 + firma Ed25519)"
 publish = false

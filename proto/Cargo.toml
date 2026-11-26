@@ -1,6 +1,6 @@
 [package]
 name = "mish-proto"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Protocolo de socket entre mish-daemon y sus clientes (GUI, hooks, ctl)"
 publish = false

@@ -382,7 +382,7 @@ dependencies = [
 
 [[package]]
 name = "mish"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc",
  "mish-proto",
@@ -392,11 +392,12 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+ "unicode-width",
 ]
 
 [[package]]
 name = "mish-proto"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc",
  "serde",
@@ -405,7 +406,7 @@ dependencies = [
 
 [[package]]
 name = "mish-updater"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64",
  "ed25519-dalek",

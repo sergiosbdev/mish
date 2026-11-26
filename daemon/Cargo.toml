@@ -1,6 +1,6 @@
 [package]
 name = "mish-daemon"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Daemon de sesiones persistentes de Mish (PTYs que sobreviven a la GUI)"
 publish = false

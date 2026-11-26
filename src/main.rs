@@ -4,6 +4,7 @@ mod config;
 mod exec;
 mod git;
 mod highlight;
+mod histsearch;
 mod hook;
 mod ls;
 mod parse;
@@ -21,7 +22,7 @@ use parse::Parsed;
 use reedline::{
     default_emacs_keybindings, default_vi_insert_keybindings, default_vi_normal_keybindings,
     default_vi_visual_keybindings, ColumnarMenu, DefaultHinter, Emacs, ExternalPrinter, FileBackedHistory,
-    KeyCode, KeyModifiers, Keybindings, ListMenu, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu, Signal, Vi,
+    KeyCode, KeyModifiers, Keybindings, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu, Signal, Vi,
 };
 use std::collections::{BTreeMap, HashSet};
 use std::process::Command;
@@ -166,7 +167,8 @@ fn main() {
         let st = sh.state.lock().unwrap();
         let bienvenida = st.cfg.tema.bienvenida;
         if bienvenida {
-            let dirs: Vec<String> = st.cfg.dirs.keys().cloned().collect();
+            // Carpetas visitadas de verdad en este equipo (no las de [dirs], que pueden no existir aquí).
+            let dirs = zdirs::short_names(&zdirs::recent(10));
             status::welcome_header(&st.theme, &dirs, 0);
         }
         if bienvenida || st.cfg.avisos.vpn {
@@ -240,7 +242,8 @@ fn build_editor(state: &Arc<Mutex<State>>, printer: ExternalPrinter<String>) -> 
     let history = FileBackedHistory::with_file(20_000, hist_path).expect("no se pudo abrir el historial");
 
     let completion_menu = ColumnarMenu::default().with_name("completion_menu");
-    let history_menu = ListMenu::default().with_name("history_menu").with_page_size(12);
+    // Ctrl+R: búsqueda propia (varias palabras, sin mayúsculas, difusa); ver histsearch.rs.
+    let history_menu = histsearch::HistorySearchMenu::new(&theme);
 
     let add_keys = |kb: &mut Keybindings| {
         kb.add_binding(
@@ -252,14 +255,23 @@ fn build_editor(state: &Arc<Mutex<State>>, printer: ExternalPrinter<String>) -> 
             ]),
         );
         kb.add_binding(KeyModifiers::SHIFT, KeyCode::BackTab, ReedlineEvent::MenuPrevious);
+        // Ctrl+R abre la búsqueda en el historial; con ella abierta, Ctrl+R/Ctrl+S bajan/suben.
         kb.add_binding(
             KeyModifiers::CONTROL,
             KeyCode::Char('r'),
             ReedlineEvent::UntilFound(vec![
                 ReedlineEvent::Menu("history_menu".to_string()),
-                ReedlineEvent::MenuPageNext,
+                ReedlineEvent::MenuNext,
             ]),
         );
+        kb.add_binding(KeyModifiers::CONTROL, KeyCode::Char('s'), ReedlineEvent::MenuPrevious);
+        // Ctrl+G cancela un menú abierto (como en readline); si no hay ninguno, sigue siendo
+        // «rehacer» en modo emacs.
+        let ctrl_g = match kb.find_binding(KeyModifiers::CONTROL, KeyCode::Char('g')) {
+            Some(prev) => ReedlineEvent::UntilFound(vec![ReedlineEvent::Esc, prev]),
+            None => ReedlineEvent::Esc,
+        };
+        kb.add_binding(KeyModifiers::CONTROL, KeyCode::Char('g'), ctrl_g);
     };
 
     let edit_mode: Box<dyn reedline::EditMode> = if modo == "vi" {
@@ -340,17 +352,44 @@ impl Shell {
         }
     }
 
-    /// Ejecuta una línea completa. Devuelve el código de salida.
+    /// Ejecuta lo que devuelve el editor: una línea o un bloque de varias (pegado). Un bloque se
+    /// ejecuta comando a comando, como si se hubiera escrito a mano (`cd` sigue cambiando el
+    /// directorio de mish); un `for`/`if`/heredoc de varias líneas es un solo comando. Si queda
+    /// algo sin cerrar, el bloque va entero a la shell de delegación (ver `parse::split_lines`).
+    /// Devuelve el código de salida del último comando.
     fn run_line(&mut self, line: &str) -> i32 {
-        let line = self.expand_alias(line.trim());
         let t = Instant::now();
-        let code = match parse::parse(&line) {
-            Parsed::Empty => return self.ctx.last_status,
-            Parsed::Shell(l) => self.run_delegated(&l),
-            Parsed::Simple(argv) => self.run_argv(argv, &line),
+        let code = match parse::split_lines(line) {
+            None => self.run_delegated(line.trim()),
+            Some(cmds) if cmds.is_empty() => return self.ctx.last_status,
+            Some(cmds) => {
+                let mut code = 0;
+                for cmd in &cmds {
+                    code = self.run_one(cmd);
+                    // Ctrl+C (130) o Ctrl+Z (148) cancelan el resto del bloque, como en zsh.
+                    if self.exit || code == 130 || code == 148 {
+                        break;
+                    }
+                }
+                code
+            }
         };
         self.ctx.last_duration = t.elapsed();
         code
+    }
+
+    /// Ejecuta un único comando (de `split_lines`). Si ocupa varias líneas (`for … done`,
+    /// heredoc, comillas con saltos…) es sintaxis de shell: va entero a la shell de delegación.
+    fn run_one(&mut self, line: &str) -> i32 {
+        if line.contains('\n') {
+            return self.run_delegated(line);
+        }
+        let line = self.expand_alias(line.trim());
+        match parse::parse(&line) {
+            Parsed::Empty => self.ctx.last_status,
+            Parsed::Shell(l) => self.run_delegated(&l),
+            Parsed::Simple(argv) => self.run_argv(argv, &line),
+        }
     }
 
     /// Ejecuta la línea entera con la shell de delegación (`<shell> -c línea`), en primer plano.
@@ -547,7 +586,8 @@ impl Shell {
         };
         let Some(name) = name else {
             for (k, v) in &dirs {
-                println!("  {} {}", t.cwd.s().paint(format!("{k:<12}")), t.muted.s().paint(v));
+                let falta = if std::path::Path::new(&parse::expand_tilde(v)).is_dir() { "" } else { "  (no existe aquí)" };
+                println!("  {} {}{}", t.cwd.s().paint(format!("{k:<12}")), t.muted.s().paint(v), t.warn.s().paint(falta));
             }
             return 0;
         };
@@ -564,7 +604,7 @@ impl Shell {
     fn z(&mut self, q: &[String]) -> i32 {
         if q.is_empty() {
             let t = self.theme();
-            for p in zdirs::ranked(&[]).into_iter().take(15) {
+            for p in zdirs::ranked(&[]).into_iter().filter(|p| std::path::Path::new(p).is_dir()).take(15) {
                 println!("  {}", t.cwd.s().paint(parse::contract_home(&p)));
             }
             return 0;
@@ -706,7 +746,10 @@ fn help(t: &Theme) {
     println!("  Config: {}  (se recarga al guardar)", config::path().display());
     println!("  Pipes, redirecciones, $VAR, globs, builtins de shell y comandos que mish no conoce");
     println!("  se ejecutan con la shell de delegación (delegate_shell en la config; por defecto zsh).");
-    println!("  Tab: autocompletar · →: aceptar sugerencia · Ctrl+R: historial");
+    println!("  Tab: autocompletar · →: aceptar sugerencia · ↑ con texto: historial que empieza así");
+    println!("  Ctrl+R: buscar en el historial por lo que recuerdes (varias palabras en cualquier orden,");
+    println!("          sin mayúsculas; vale con las letras en orden: «dcup» → docker compose up).");
+    println!("          ↑↓ o Ctrl+R/Ctrl+S para elegir · Enter lo pone en la línea · Esc/Ctrl+G cierra.");
     println!("  Empieza un comando con espacio para no guardarlo en el historial.");
     println!();
     println!("  Subcomandos de `mish`:");

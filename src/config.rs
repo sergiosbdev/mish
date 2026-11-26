@@ -140,7 +140,7 @@ formato = "{cwd} {git}{tiempo}{estado}❯ "
 
 [tema]
 nombre = "cobre"
-bienvenida = true        # panel al abrir: servidores, dirs
+bienvenida = true        # panel al abrir: carpetas recientes, servidores
 prompt_compacto = true   # los comandos ya ejecutados quedan como "❯ comando"
 
 [avisos]
@@ -164,8 +164,9 @@ c  = "claude"
 # ip = "curl -s ifconfig.me; echo"
 
 [dirs]
-# Saltos rápidos: `ir code`
-code     = "~/code"
+# Marcadores opcionales para `ir nombre` (las carpetas recientes de la bienvenida y `z`
+# se aprenden solas al usar cd / ir / z en este equipo):
+# code     = "~/code"
 # proyecto = "~/code/proyecto"
 
 [servidores]

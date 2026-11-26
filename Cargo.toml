@@ -1,6 +1,6 @@
 [package]
 name = "mish"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 
 [dependencies]
@@ -12,3 +12,4 @@ reedline = "0.53.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 toml = "1.2.2"
+unicode-width = "0.2.3"

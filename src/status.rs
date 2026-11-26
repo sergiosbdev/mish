@@ -26,7 +26,7 @@ fn probe_all(hosts: Vec<String>) -> Vec<(String, bool)> {
 ///
 /// ```text
 ///   ❯ mish   lunes 23 nov  20:16 · mi-mac
-///     ir     code · docs · notas · proyecto · web
+///     z      api · docs · notas · proyecto · web            ← carpetas recientes de verdad
 ///     ssh    ●●●●●●●●●●○●  11/12 · sin respuesta: db        ← llega después (spawn)
 /// ```
 /// El ❯ cuelga en el margen; etiquetas bajo «mish» y valores en la columna 11.
@@ -43,13 +43,29 @@ pub fn welcome_header(t: &Theme, dirs: &[String], jobs: usize) {
         t.cwd.s().paint(hora),
         t.muted.s().paint(crate::prompt::hostname())
     );
-    if !dirs.is_empty() {
-        let d: Vec<String> = dirs.iter().map(|d| t.cwd.s().paint(d).to_string()).collect();
-        println!("    {}{}", label(t, "ir"), d.join(&sep));
+    let d = fit_names(dirs, ANCHO - 4 - 7);
+    if !d.is_empty() {
+        let d: Vec<String> = d.iter().map(|d| t.cwd.s().paint(d.as_str()).to_string()).collect();
+        println!("    {}{}", label(t, "z"), d.join(&sep));
     }
     if jobs > 0 {
         println!("    {}{}", label(t, "jobs"), t.warn.s().paint(format!("{jobs} detenidos")));
     }
+}
+
+/// Los nombres que caben (en orden) en `ancho` columnas, separados por " · ".
+fn fit_names(names: &[String], ancho: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut usado = 0;
+    for n in names {
+        let w = n.chars().count() + if out.is_empty() { 0 } else { 3 };
+        if usado + w > ancho {
+            break;
+        }
+        usado += w;
+        out.push(n.clone());
+    }
+    out
 }
 
 /// Etiqueta de la bienvenida: 7 columnas, en gris.
