@@ -25,11 +25,11 @@ concurrency:
 
 jobs:
   release:
-    # macos-14 = Apple Silicon (arm64). x86_64 se compila cruzado y se une con lipo (universal):
+    # macos-latest = Apple Silicon (arm64; macos-14 ya no está soportado). x86_64 se compila cruzado y se une con lipo (universal):
     # el código es Rust puro + frameworks del sistema (WebKit vía wry), así que la compilación
     # cruzada solo necesita el target x86_64-apple-darwin; un único zip sirve a ambos Mac.
     # Si alguna vez falla, cambiar ARCH a arm64 (el actualizador también busca *-arm64.zip).
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 60
     env:
       ARCH: universal
